@@ -1,0 +1,144 @@
+use core::{
+    fmt::{self, Debug, Display, Write},
+    str,
+};
+
+pub struct Writer<T> {
+    sink: T,
+}
+
+impl<T: fmt::Write> Writer<T> {
+    pub fn new_with_default_header(mut sink: T) -> Result<Self, fmt::Error> {
+        sink.write_str(r#"<?xml version="1.0" encoding="UTF-8"?>"#)?;
+        Ok(Self { sink })
+    }
+
+    pub fn tag<O, E: From<fmt::Error>, F: FnOnce(AttributeWriter<'_, T>) -> Result<O, E>>(
+        &mut self,
+        tag: &str,
+        f: F,
+    ) -> Result<O, E> {
+        self.sink.write_str("<")?;
+        self.sink.write_str(tag)?;
+        let mut has_content = false;
+        let res = f(AttributeWriter {
+            writer: self,
+            has_content: &mut has_content,
+        })?;
+        if has_content {
+            self.sink.write_str("</")?;
+            self.sink.write_str(tag)?;
+            self.sink.write_str(">")?;
+        } else {
+            self.sink.write_str("/>")?;
+        }
+        Ok(res)
+    }
+
+    pub fn empty_tag<'a, I: IntoIterator<Item = (&'a str, impl Value)>>(
+        &mut self,
+        tag: &str,
+        attributes: I,
+    ) -> fmt::Result {
+        self.tag(tag, |mut tag| {
+            for (k, v) in attributes {
+                tag.attribute(k, v)?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn tag_with_content<
+        'a,
+        O,
+        E: From<fmt::Error>,
+        F: FnOnce(&mut Writer<T>) -> Result<O, E>,
+        I: IntoIterator<Item = (&'a str, impl Value)>,
+    >(
+        &mut self,
+        tag: &str,
+        attributes: I,
+        f: F,
+    ) -> Result<O, E> {
+        self.tag(tag, |mut tag| {
+            for (k, v) in attributes {
+                tag.attribute(k, v)?;
+            }
+            tag.content(f)
+        })
+    }
+}
+
+pub struct AttributeWriter<'a, T> {
+    writer: &'a mut Writer<T>,
+    has_content: &'a mut bool,
+}
+
+impl<'a, T: fmt::Write> AttributeWriter<'a, T> {
+    pub fn attribute(&mut self, key: &str, value: impl Value) -> fmt::Result {
+        self.writer.sink.write_str(" ")?;
+        self.writer.sink.write_str(key)?;
+        self.writer.sink.write_str("=\"")?;
+        value.write_escaped(&mut self.writer.sink)?;
+        self.writer.sink.write_str("\"")
+    }
+
+    pub fn content<O, E: From<fmt::Error>, F: FnOnce(&mut Writer<T>) -> Result<O, E>>(
+        self,
+        f: F,
+    ) -> Result<O, E> {
+        *self.has_content = true;
+        self.writer.sink.write_str(">")?;
+        f(self.writer)
+    }
+}
+
+pub trait Value {
+    fn write_escaped<T: fmt::Write>(self, sink: &mut T) -> fmt::Result;
+    fn is_empty(&self) -> bool;
+}
+
+pub struct DisplayAlreadyEscaped<T>(pub T);
+
+impl<D: fmt::Display> Value for DisplayAlreadyEscaped<D> {
+    fn write_escaped<T: fmt::Write>(self, sink: &mut T) -> fmt::Result {
+        write!(sink, "{}", self.0)
+    }
+
+    fn is_empty(&self) -> bool {
+        let mut sink = IsEmptySink(true);
+        let _ = write!(sink, "{}", self.0);
+        sink.0
+    }
+}
+
+struct IsEmptySink(bool);
+
+impl fmt::Write for IsEmptySink {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0 &= s.is_empty();
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Tag<'a>(&'a str);
+
+impl Debug for Tag<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<")?;
+        Display::fmt(self.0, f)?;
+        f.write_str(" />")
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct TagName<'a>(&'a str);
+
+impl Debug for TagName<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<")?;
+        Display::fmt(self.0, f)?;
+        f.write_str("/>")
+    }
+}
