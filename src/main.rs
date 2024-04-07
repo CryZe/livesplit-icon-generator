@@ -66,7 +66,7 @@ impl PathBuilder {
 fn main() {
     let mut buf = String::new();
 
-    write(&mut buf, [1000.0; 2]).unwrap();
+    write(&mut buf, [1000.0, 950.0]).unwrap();
 
     std::fs::write("icon.svg", buf).unwrap();
 }
@@ -88,7 +88,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
         ],
         |writer| {
             let mut center = dim.map(|v| 0.5 * v);
-            center[1] += 50.0;
+            center[1] += 55.0;
             let radius = 690.0;
             let corners = [0, 1, 2].map(|corner| {
                 let angle = corner as f64 / 3.0 * TAU;
@@ -228,7 +228,10 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             let mut shadow = PathBuilder::new();
             let red_circle = circles[0].1;
             let blue_circle = circles[2].1;
-            shadow.move_to(red_circle[0] + dx - 1.5 * dy, red_circle[1] + dy + 1.5 * dx);
+            shadow.move_to(
+                red_circle[0] + dx - 1.35 * dy,
+                red_circle[1] + dy + 1.35 * dx,
+            );
             shadow.line_to(red_circle[0] + dx, red_circle[1] + dy);
             shadow.line_to(red_circle[0] - dx, red_circle[1] - dy);
             shadow.line_to(red_circle[0] - dx - 2.0 * dy, red_circle[1] - dy + 2.0 * dx);
@@ -238,10 +241,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             );
             shadow.line_to(blue_circle[0] + dx, blue_circle[1] + dy);
             shadow.line_to(blue_circle[0] - dx, blue_circle[1] - dy);
-            shadow.line_to(
-                blue_circle[0] - dx - 0.9 * dy,
-                blue_circle[1] - dy + 0.9 * dx,
-            );
+            shadow.line_to(blue_circle[0] - dx - 0.9 * dy, corners[1][1]);
             let before = corners[2];
             let current = corners[1];
             let after = corners[0];
@@ -288,9 +288,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                     ("stroke-width", DisplayAlreadyEscaped("40")),
                     ("filter", DisplayAlreadyEscaped("url(#3)")),
                 ],
-            )?;
-
-            Ok(())
+            )
         },
     )
 }
