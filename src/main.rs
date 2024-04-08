@@ -16,6 +16,16 @@ fn r(x: f64) -> f64 {
     (x * 1_000.0).round() / 1_000.0
 }
 
+fn intersect(a1: [f64; 2], a2: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> Option<[f64; 2]> {
+    let d = (a1[0] - a2[0]) * (b1[1] - b2[1]) - (a1[1] - a2[1]) * (b1[0] - b2[0]);
+    if d.abs() < 1e-6 {
+        return None;
+    }
+
+    let t = ((a1[0] - b1[0]) * (b1[1] - b2[1]) - (a1[1] - b1[1]) * (b1[0] - b2[0])) / d;
+    Some([lerp(a1[0], a2[0], t), lerp(a1[1], a2[1], t)])
+}
+
 struct PathBuilder {
     buf: String,
 }
@@ -25,24 +35,15 @@ impl PathBuilder {
         Self { buf: String::new() }
     }
 
-    fn move_to(&mut self, x: f64, y: f64) {
-        if !self.buf.is_empty() {
-            self.buf.push(' ');
-        }
+    fn move_to(&mut self, [x, y]: [f64; 2]) {
         let _ = write!(self.buf, "M{},{}", r(x), r(y));
     }
 
-    fn line_to(&mut self, x: f64, y: f64) {
-        if !self.buf.is_empty() {
-            self.buf.push(' ');
-        }
+    fn line_to(&mut self, [x, y]: [f64; 2]) {
         let _ = write!(self.buf, "L{},{}", r(x), r(y));
     }
 
-    fn cubic_to(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) {
-        if !self.buf.is_empty() {
-            self.buf.push(' ');
-        }
+    fn cubic_to(&mut self, [x1, y1]: [f64; 2], [x2, y2]: [f64; 2], [x, y]: [f64; 2]) {
         let _ = write!(
             self.buf,
             "C{},{} {},{} {},{}",
@@ -56,9 +57,6 @@ impl PathBuilder {
     }
 
     fn close(&mut self) {
-        if !self.buf.is_empty() {
-            self.buf.push(' ');
-        }
         self.buf.push('Z');
     }
 }
@@ -104,14 +102,14 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             let circle_radius = 170.0;
 
             let circles = [
-                (0, "#D73F4A", "#C22B36"),
-                (1, "#3FCD46", "#27BB2E"),
-                (2, "#3F5CD7", "#2B48C2"),
+                (0, "#D73F4A", "#C22B36", "r"),
+                (1, "#3FCD46", "#27BB2E", "g"),
+                (2, "#3F5CD7", "#2B48C2", "b"),
             ]
-            .map(|(corner, top, bottom)| {
+            .map(|(corner, top, bottom, id)| {
                 let angle = corner as f64 / 3.0 * TAU;
                 (
-                    corner,
+                    id,
                     [
                         angle.sin() * circle_distance + center[0],
                         -angle.cos() * circle_distance + center[1],
@@ -123,15 +121,12 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
 
             writer.tag("defs", |writer| {
                 writer.content(|writer| {
-                    for (corner, _, top, bottom) in circles {
+                    for (id, _, top, bottom) in circles {
                         writer.tag_with_content(
                             "linearGradient",
                             [
-                                ("id", DisplayAlreadyEscaped(format_args!("{}", corner))),
-                                (
-                                    "gradientTransform",
-                                    DisplayAlreadyEscaped(format_args!("rotate(90)")),
-                                ),
+                                ("id", DisplayAlreadyEscaped(id)),
+                                ("gradientTransform", DisplayAlreadyEscaped("rotate(90)")),
                             ],
                             |writer| {
                                 writer.empty_tag(
@@ -152,7 +147,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
 
                     writer.tag_with_content(
                         "filter",
-                        [("id", DisplayAlreadyEscaped("3"))],
+                        [("id", DisplayAlreadyEscaped("s"))],
                         |writer| {
                             writer.empty_tag("feOffset", [("dy", DisplayAlreadyEscaped("10"))])?;
                             writer.empty_tag(
@@ -189,17 +184,17 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
 
                         if i == 0 {
                             let from = lerp_vec(before, current, ROUND_END);
-                            tri.move_to(from[0], from[1]);
+                            tri.move_to(from);
                         }
 
                         let p1 = lerp_vec(before, current, ROUND_END + 0.125);
                         let p2 = lerp_vec(current, after, ROUND_START - 0.125);
                         let end = lerp_vec(current, after, ROUND_START);
-                        tri.cubic_to(p1[0], p1[1], p2[0], p2[1], end[0], end[1]);
+                        tri.cubic_to(p1, p2, end);
 
                         if i != 2 {
                             let to = lerp_vec(current, after, ROUND_END);
-                            tri.line_to(to[0], to[1]);
+                            tri.line_to(to);
                         }
                     }
 
@@ -208,7 +203,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                     writer.empty_tag(
                         "path",
                         [
-                            ("id", DisplayAlreadyEscaped("4")),
+                            ("id", DisplayAlreadyEscaped("t")),
                             ("d", DisplayAlreadyEscaped(&*tri.buf)),
                         ],
                     )
@@ -218,7 +213,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             writer.empty_tag(
                 "use",
                 [
-                    ("href", DisplayAlreadyEscaped("#4")),
+                    ("href", DisplayAlreadyEscaped("#t")),
                     ("fill", DisplayAlreadyEscaped("#404040")),
                 ],
             )?;
@@ -228,31 +223,46 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             let mut shadow = PathBuilder::new();
             let red_circle = circles[0].1;
             let blue_circle = circles[2].1;
-            shadow.move_to(
-                red_circle[0] + dx - 1.35 * dy,
-                red_circle[1] + dy + 1.35 * dx,
-            );
-            shadow.line_to(red_circle[0] + dx, red_circle[1] + dy);
-            shadow.line_to(red_circle[0] - dx, red_circle[1] - dy);
-            shadow.line_to(red_circle[0] - dx - 2.0 * dy, red_circle[1] - dy + 2.0 * dx);
-            shadow.line_to(
+
+            let top_intersect = intersect(
+                [red_circle[0] + dx, red_circle[1] + dy],
+                [red_circle[0] + dx - dy, red_circle[1] + dy + dx],
+                corners[0],
+                corners[1],
+            )
+            .unwrap();
+
+            shadow.move_to(top_intersect);
+            shadow.line_to([red_circle[0] + dx, red_circle[1] + dy]);
+            shadow.line_to([red_circle[0] - dx, red_circle[1] - dy]);
+            shadow.line_to([red_circle[0] - dx - 2.0 * dy, red_circle[1] - dy + 2.0 * dx]);
+            shadow.line_to([
                 blue_circle[0] + dx - 1.5 * dy,
                 blue_circle[1] + dy + 1.5 * dx,
-            );
-            shadow.line_to(blue_circle[0] + dx, blue_circle[1] + dy);
-            shadow.line_to(blue_circle[0] - dx, blue_circle[1] - dy);
-            shadow.line_to(blue_circle[0] - dx - 0.9 * dy, corners[1][1]);
+            ]);
+            shadow.line_to([blue_circle[0] + dx, blue_circle[1] + dy]);
+            shadow.line_to([blue_circle[0] - dx, blue_circle[1] - dy]);
+
+            let bottom_intersect = intersect(
+                [blue_circle[0] - dx, blue_circle[1] - dy],
+                [blue_circle[0] - dx - dy, blue_circle[1] - dy + dx],
+                corners[1],
+                corners[2],
+            )
+            .unwrap();
+            shadow.line_to(bottom_intersect);
+
             let before = corners[2];
             let current = corners[1];
             let after = corners[0];
 
             let from = lerp_vec(before, current, ROUND_END);
-            shadow.line_to(from[0], from[1]);
+            shadow.line_to(from);
 
             let p1 = lerp_vec(before, current, ROUND_END + 0.125);
             let p2 = lerp_vec(current, after, ROUND_START - 0.125);
             let end = lerp_vec(current, after, ROUND_START);
-            shadow.cubic_to(p1[0], p1[1], p2[0], p2[1], end[0], end[1]);
+            shadow.cubic_to(p1, p2, end);
 
             shadow.close();
 
@@ -264,7 +274,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                 ],
             )?;
 
-            for (corner, [x, y], _, _) in circles {
+            for (id, [x, y], _, _) in circles {
                 writer.empty_tag(
                     "circle",
                     [
@@ -273,7 +283,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                         ("r", DisplayAlreadyEscaped(format_args!("{circle_radius}"))),
                         (
                             "fill",
-                            DisplayAlreadyEscaped(format_args!("url(#{})", corner)),
+                            DisplayAlreadyEscaped(format_args!("url(#{})", id)),
                         ),
                     ],
                 )?;
@@ -282,11 +292,11 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
             writer.empty_tag(
                 "use",
                 [
-                    ("href", DisplayAlreadyEscaped("#4")),
+                    ("href", DisplayAlreadyEscaped("#t")),
                     ("fill", DisplayAlreadyEscaped("none")),
-                    ("stroke", DisplayAlreadyEscaped("#fff")),
+                    ("stroke", DisplayAlreadyEscaped("#FFF")),
                     ("stroke-width", DisplayAlreadyEscaped("40")),
-                    ("filter", DisplayAlreadyEscaped("url(#3)")),
+                    ("filter", DisplayAlreadyEscaped("url(#s)")),
                 ],
             )
         },
