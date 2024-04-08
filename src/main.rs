@@ -1,7 +1,11 @@
 mod xml;
 
-use std::{f64::consts::TAU, fmt::Write};
+use std::{f64::consts::TAU, fmt::Write, fs};
 
+use resvg::{
+    tiny_skia::Pixmap,
+    usvg::{self, fontdb},
+};
 use xml::{DisplayAlreadyEscaped, Writer};
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
@@ -66,7 +70,18 @@ fn main() {
 
     write(&mut buf, [1000.0, 950.0]).unwrap();
 
-    std::fs::write("icon.svg", buf).unwrap();
+    fs::write("icon.svg", &buf).unwrap();
+
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+    let mut pixmap = Pixmap::new(1000, 950).unwrap();
+    resvg::render(
+        &usvg::Tree::from_str(&buf, &Default::default(), &database).unwrap(),
+        Default::default(),
+        &mut pixmap.as_mut(),
+    );
+
+    pixmap.save_png("icon.png").unwrap();
 }
 
 fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result {
@@ -281,10 +296,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                         ("cx", DisplayAlreadyEscaped(format_args!("{}", r(x)))),
                         ("cy", DisplayAlreadyEscaped(format_args!("{}", r(y)))),
                         ("r", DisplayAlreadyEscaped(format_args!("{circle_radius}"))),
-                        (
-                            "fill",
-                            DisplayAlreadyEscaped(format_args!("url(#{})", id)),
-                        ),
+                        ("fill", DisplayAlreadyEscaped(format_args!("url(#{})", id))),
                     ],
                 )?;
             }
