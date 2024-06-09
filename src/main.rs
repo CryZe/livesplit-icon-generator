@@ -17,17 +17,13 @@ fn lerp_vec(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
 }
 
 fn r(x: f64) -> f64 {
-    (x * 1_000.0).round() / 1_000.0
+    (x * 1_000.0).round_ties_even() / 1_000.0
 }
 
-fn intersect(a1: [f64; 2], a2: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> Option<[f64; 2]> {
+fn intersect(a1: [f64; 2], a2: [f64; 2], b1: [f64; 2], b2: [f64; 2]) -> [f64; 2] {
     let d = (a1[0] - a2[0]) * (b1[1] - b2[1]) - (a1[1] - a2[1]) * (b1[0] - b2[0]);
-    if d.abs() < 1e-6 {
-        return None;
-    }
-
     let t = ((a1[0] - b1[0]) * (b1[1] - b2[1]) - (a1[1] - b1[1]) * (b1[0] - b2[0])) / d;
-    Some([lerp(a1[0], a2[0], t), lerp(a1[1], a2[1], t)])
+    lerp_vec(a1, a2, t)
 }
 
 struct PathBuilder {
@@ -68,12 +64,11 @@ impl PathBuilder {
 fn main() {
     let mut buf = String::new();
 
-    write(&mut buf, [1000.0, 950.0]).unwrap();
+    write(&mut buf, [1000.0, 950.0], false).unwrap();
 
     fs::write("icon.svg", &buf).unwrap();
 
-    let mut database = fontdb::Database::new();
-    database.load_system_fonts();
+    let database = fontdb::Database::new();
     let mut pixmap = Pixmap::new(1000, 950).unwrap();
     resvg::render(
         &usvg::Tree::from_str(&buf, &Default::default(), &database).unwrap(),
@@ -82,9 +77,24 @@ fn main() {
     );
 
     pixmap.save_png("icon.png").unwrap();
+
+    buf.clear();
+
+    write(&mut buf, [1350.0, 1350.0], true).unwrap();
+
+    fs::write("maskable.svg", &buf).unwrap();
+
+    let mut pixmap = Pixmap::new(1350, 1350).unwrap();
+    resvg::render(
+        &usvg::Tree::from_str(&buf, &Default::default(), &database).unwrap(),
+        Default::default(),
+        &mut pixmap.as_mut(),
+    );
+
+    pixmap.save_png("maskable.png").unwrap();
 }
 
-fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result {
+fn write(buf: &mut String, dim @ [width, height]: [f64; 2], maskable: bool) -> std::fmt::Result {
     let mut writer = Writer::new_with_default_header(buf)?;
 
     writer.tag_with_content(
@@ -101,7 +111,11 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
         ],
         |writer| {
             let mut center = dim.map(|v| 0.5 * v);
-            center[1] += 55.0;
+            if !maskable {
+                center[1] += 55.0;
+            } else {
+                center[1] += 25.0;
+            }
             let radius = 690.0;
             let corners = [0, 1, 2].map(|corner| {
                 let angle = corner as f64 / 3.0 * TAU;
@@ -225,6 +239,19 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                 })
             })?;
 
+            if maskable {
+                writer.empty_tag(
+                    "path",
+                    [
+                        ("fill", DisplayAlreadyEscaped(format_args!("#171717"))),
+                        (
+                            "d",
+                            DisplayAlreadyEscaped(format_args!("M0 0h{width}v{height}H0z")),
+                        ),
+                    ],
+                )?;
+            }
+
             writer.empty_tag(
                 "use",
                 [
@@ -244,8 +271,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                 [red_circle[0] + dx - dy, red_circle[1] + dy + dx],
                 corners[0],
                 corners[1],
-            )
-            .unwrap();
+            );
 
             shadow.move_to(top_intersect);
             shadow.line_to([red_circle[0] + dx, red_circle[1] + dy]);
@@ -263,8 +289,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                 [blue_circle[0] - dx - dy, blue_circle[1] - dy + dx],
                 corners[1],
                 corners[2],
-            )
-            .unwrap();
+            );
             shadow.line_to(bottom_intersect);
 
             let before = corners[2];
@@ -296,7 +321,7 @@ fn write(buf: &mut String, dim @ [width, height]: [f64; 2]) -> std::fmt::Result 
                         ("cx", DisplayAlreadyEscaped(format_args!("{}", r(x)))),
                         ("cy", DisplayAlreadyEscaped(format_args!("{}", r(y)))),
                         ("r", DisplayAlreadyEscaped(format_args!("{circle_radius}"))),
-                        ("fill", DisplayAlreadyEscaped(format_args!("url(#{})", id))),
+                        ("fill", DisplayAlreadyEscaped(format_args!("url(#{id})"))),
                     ],
                 )?;
             }
